@@ -211,8 +211,7 @@ function receiveOpenMessage(message: OpenMessage, ws: AudioHookWebSocket): void 
 
   ws.conversationId = message.parameters.conversationId;
   ws.media = mediaParameter;
-
-  setTimeout(() => sendOpened(ws), 4000);
+  sendOpened(ws);
 }
 
 /**
