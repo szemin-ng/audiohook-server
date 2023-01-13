@@ -1,15 +1,27 @@
 import logger from "./log";
+import express from "express";
+import cors from "cors";
 import { WebSocketServer, WebSocket } from "ws";
 import { IncomingMessage } from "http";
 import { AudioHookWebSocket, ClientMessage, ClosedMessage, CloseMessage, DiscardedMessage, DisconnectMessage, DisconnectReason, ErrorMessage, MessageDispatcher, OpenedMessage, OpenMessage, PingMessage, PongMessage, ServerMessage } from "./models";
 import { PcmuToWav } from "./pcmu-to-wav";
 import path from "path";
 import * as fsPromises from "fs/promises";
+import * as fs from "fs";
+import { listAudioFiles } from "./api";
+import { environment } from "./environment";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-const wss = new WebSocketServer({ port: PORT });
-const ORG_ID = "2fe77629-79b8-4065-ba92-0e08ff865b17";    // genesysscosea1
-const API_KEY = "SzeMinAPIKey";                           // configured at GC Admn > Integrations page
+
+const app = express();
+app.use(cors());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use("/media", express.static(path.join(__dirname, environment.mediaPath)));
+app.get("/audio", listAudioFiles);
+
+// create media folder
+if (!fs.existsSync(path.join(__dirname, environment.mediaPath))) fs.mkdirSync(path.join(__dirname, environment.mediaPath));
 
 /** Object to store and dispatch function references */
 let clientMessageDispatcher: MessageDispatcher<ClientMessage, AudioHookWebSocket> = {
@@ -20,52 +32,55 @@ let clientMessageDispatcher: MessageDispatcher<ClientMessage, AudioHookWebSocket
   ping: receivePingMessage
 };
 
-// hook up "connection" event
-wss.on("connection", (ws: AudioHookWebSocket, req: IncomingMessage) => {
+let expressServer = app.listen(PORT, () => {
+  const wss = new WebSocketServer({ server: expressServer });
 
-  ws.on("message", onWebSocketMessage);   // handle incoming data from AudioHook client
-  ws.on("close", onWebSocketClosed);      // handle websocket close
+  // hook up "connection" event
+  wss.on("connection", (ws: AudioHookWebSocket, req: IncomingMessage) => {
 
-  // initialize variables
-  ws.seq = 0;
-  ws.clientSeq = 0;
-  ws.samples = Buffer.from([]);
+    ws.on("message", onWebSocketMessage);   // handle incoming data from AudioHook client
+    ws.on("close", onWebSocketClosed);      // handle websocket close
 
-  // save headers sent by AudioHook client
-  let sessionId = req.headers["audiohook-session-id"];
-  let organizationId = req.headers["audiohook-organization-id"];
-  let key = req.headers["x-api-key"];
+    // initialize variables
+    ws.seq = 0;
+    ws.clientSeq = 0;
+    ws.samples = Buffer.from([]);
 
-  // verify headers
-  if (!sessionId) {
-    logger.error("audiohook-session-id is missing from request headers.");
-    return;
-  }
-  ws.sessionId = sessionId as string;
+    // save headers sent by AudioHook client
+    let sessionId = req.headers["audiohook-session-id"];
+    let organizationId = req.headers["audiohook-organization-id"];
+    let key = req.headers["x-api-key"];
 
-  if (!organizationId || (organizationId as string) !== ORG_ID) {
-    logger.error({ sessionId: ws.sessionId, orgId: organizationId }, "audiohook-organization-id not accepted.");
-    sendDisconnect("unauthorized", "Organization id not accepted.", ws);
-    return;
-  }
-  ws.orgId = organizationId as string;
+    // verify headers
+    if (!sessionId) {
+      logger.error("audiohook-session-id is missing from request headers.");
+      return;
+    }
+    ws.sessionId = sessionId as string;
 
-  if (!key || key != API_KEY) {
-    logger.error({ sessionId: ws.sessionId }, "Unauthorized connection. Invalid x-api-key.");
-    sendDisconnect("unauthorized", "Invalid key.", ws);
-    return;
-  }
+    if (!organizationId || (organizationId as string) !== environment.orgId) {
+      logger.error({ sessionId: ws.sessionId, orgId: organizationId }, "audiohook-organization-id not accepted.");
+      sendDisconnect("unauthorized", "Organization id not accepted.", ws);
+      return;
+    }
+    ws.orgId = organizationId as string;
 
-  // all verified ok
-  logger.info(`New websocket session.`);
-  logger.debug({ sessionId: ws.sessionId }, "New websocket session.");
+    if (!key || key != environment.audioHookApiKey) {
+      logger.error({ sessionId: ws.sessionId }, "Unauthorized connection. Invalid x-api-key.");
+      sendDisconnect("unauthorized", "Invalid key.", ws);
+      return;
+    }
+
+    // all verified ok
+    logger.info(`New websocket session.`);
+    logger.debug({ sessionId: ws.sessionId }, "New websocket session.");
+  });
+
+  // clean up old WAV files
+  cleanUpFiles().then(() => {
+    logger.info(`Listening on port ${PORT}.`);
+  });
 });
-
-// clean up old WAV files
-cleanUpFiles().then(() => {
-  logger.info(`Listening on port ${PORT}.`);
-});
-
 
 
 
@@ -76,9 +91,9 @@ cleanUpFiles().then(() => {
 /** Delete old WAV files in application directory. */
 async function cleanUpFiles() {
   try {
-    let files = await (await fsPromises.readdir(__dirname)).filter(f => f.endsWith(".wav"));
+    let files = (await fsPromises.readdir(path.join(__dirname, environment.mediaPath))).filter(f => f.endsWith(".wav"));
     files.forEach(async (f) => {
-      await fsPromises.unlink(path.join(__dirname, f));
+      await fsPromises.unlink(path.join(__dirname, environment.mediaPath, f));
     });
     logger.info("Cleaned up old WAV files.");
   } catch (err) {
@@ -144,7 +159,7 @@ function onWebSocketClosed(this: WebSocket, code: number, reason: Buffer): void 
   // if audio samples received and there is a valid conversation id (a valid conversation id means it wasn't a test call from the client),
   // then save the samples into a WAV file
   if (ws.samples.length > 0 && ws.conversationId) {
-    let wavFile = path.join(__dirname, `${ws.conversationId}.wav`);
+    let wavFile = path.join(__dirname, environment.mediaPath, `${ws.conversationId}.wav`);
     logger.info(`Writing PCMU to ${wavFile}`);
     PcmuToWav(ws.samples, 8, 2, 8000, wavFile);
   }
