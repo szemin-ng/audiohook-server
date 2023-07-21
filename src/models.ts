@@ -87,6 +87,10 @@ export type DisconnectParameters = {
   info?: string;
 };
 
+type PauseParameters = EmptyObject;
+
+type PausedParameters = EmptyObject;
+
 type PingParameters = {
   rtt?: Duration;
 };
@@ -116,6 +120,7 @@ export type CloseMessage = ClientMessageBase<'close', CloseParameters>;
 export type DiscardedMessage = ClientMessageBase<'discarded', DiscardedParameters>;
 export type ErrorMessage = ClientMessageBase<'error', ErrorParameters>;
 export type OpenMessage = ClientMessageBase<"open", OpenParameters>;
+export type PausedMessage = ClientMessageBase<'paused', PausedParameters>;
 export type PingMessage = ClientMessageBase<'ping', PingParameters>;
 
 interface ServerMessageBase<T extends string, P extends JsonObject> extends MessageBase<T, P> {
@@ -125,13 +130,14 @@ interface ServerMessageBase<T extends string, P extends JsonObject> extends Mess
 export type ClosedMessage = ServerMessageBase<'closed', ClosedParameters>;
 export type DisconnectMessage = ServerMessageBase<"disconnect", DisconnectParameters>;
 export type OpenedMessage = ServerMessageBase<"opened", OpenedParameters>;
+export type PauseMessage = ServerMessageBase<'pause', PauseParameters>;
 export type PongMessage = ServerMessageBase<'pong', PongParameters>;
 
 /** Types of messages a client can send */
-export type ClientMessage = CloseMessage | DiscardedMessage | ErrorMessage | OpenMessage | PingMessage;
+export type ClientMessage = CloseMessage | DiscardedMessage | ErrorMessage | OpenMessage | PausedMessage | PingMessage;
 
 /** Types of messages a server can send */
-export type ServerMessage = ClosedMessage | DisconnectMessage | OpenedMessage | PongMessage;
+export type ServerMessage = ClosedMessage | DisconnectMessage | OpenedMessage | PauseMessage | PongMessage;
 
 type Message = ClientMessage | ServerMessage;
 
