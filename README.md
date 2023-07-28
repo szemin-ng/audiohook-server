@@ -16,4 +16,8 @@ The audio format written into WAV file header to indicate mu-law is 7.
 1. Install AudioHook integration
 2. Point it to this NodeJS server. You can use localtunnel (https://www.npmjs.com/package/localtunnel) as a tunnel.
 3. Key in API key.
-4. Configure transcription to activate either through queue or flow.
+4. NodeJs server must be started before enabling the integration.
+5. Configure transcription to activate either through queue or flow.
+
+## Starting the server
+Run `npm start`.
