@@ -97,6 +97,11 @@ type PingParameters = {
 
 type PongParameters = EmptyObject;
 
+type ResumedParameters = {
+  start: Duration;
+  discarded: Duration;
+}
+
 export type ErrorParameters = {
   code: ErrorCode;
   message: string;
@@ -122,6 +127,7 @@ export type ErrorMessage = ClientMessageBase<'error', ErrorParameters>;
 export type OpenMessage = ClientMessageBase<"open", OpenParameters>;
 export type PausedMessage = ClientMessageBase<'paused', PausedParameters>;
 export type PingMessage = ClientMessageBase<'ping', PingParameters>;
+export type ResumedMessage = ClientMessageBase<'resumed', ResumedParameters>;
 
 interface ServerMessageBase<T extends string, P extends JsonObject> extends MessageBase<T, P> {
   clientseq: SequenceNumber;
@@ -134,7 +140,7 @@ export type PauseMessage = ServerMessageBase<'pause', PauseParameters>;
 export type PongMessage = ServerMessageBase<'pong', PongParameters>;
 
 /** Types of messages a client can send */
-export type ClientMessage = CloseMessage | DiscardedMessage | ErrorMessage | OpenMessage | PausedMessage | PingMessage;
+export type ClientMessage = CloseMessage | DiscardedMessage | ErrorMessage | OpenMessage | PausedMessage | PingMessage | ResumedMessage;
 
 /** Types of messages a server can send */
 export type ServerMessage = ClosedMessage | DisconnectMessage | OpenedMessage | PauseMessage | PongMessage;

@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import { WebSocketServer, WebSocket } from "ws";
 import { IncomingMessage } from "http";
-import { AudioHookWebSocket, ClientMessage, ClosedMessage, CloseMessage, DiscardedMessage, DisconnectMessage, DisconnectReason, ErrorMessage, MessageDispatcher, OpenedMessage, OpenMessage, PausedMessage, PingMessage, PongMessage, ServerMessage } from "./models";
+import { AudioHookWebSocket, ClientMessage, ClosedMessage, CloseMessage, DiscardedMessage, DisconnectMessage, DisconnectReason, ErrorMessage, MessageDispatcher, OpenedMessage, OpenMessage, PausedMessage, PingMessage, PongMessage, ResumedMessage, ServerMessage } from "./models";
 import { PcmuToWav } from "./pcmu-to-wav";
 import path from "path";
 import * as fsPromises from "fs/promises";
@@ -31,7 +31,8 @@ let clientMessageDispatcher: MessageDispatcher<ClientMessage, AudioHookWebSocket
   error: receiveErrorMessage,
   open: receiveOpenMessage,
   paused: receivePausedMessage,
-  ping: receivePingMessage
+  ping: receivePingMessage,
+  resumed: receiveResumedMessage
 };
 
 let expressServer = app.listen(PORT, () => {
@@ -261,6 +262,15 @@ function receivePausedMessage(message: PausedMessage, ws: AudioHookWebSocket): v
  */
 function receivePingMessage(message: PingMessage, ws: AudioHookWebSocket): void {
   sendPong(ws);
+}
+
+/**
+ * Handle "resumed" message from AudioHook client.
+ * @param message "ping" message from client.
+ * @param ws Websocket session.
+ */
+function receiveResumedMessage(message: ResumedMessage, ws: AudioHookWebSocket): void {
+  logger.info(`Streaming resumed.`);
 }
 
 /**
