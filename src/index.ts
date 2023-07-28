@@ -3,12 +3,12 @@ import express from "express";
 import cors from "cors";
 import { WebSocketServer, WebSocket } from "ws";
 import { IncomingMessage } from "http";
-import { AudioHookWebSocket, ClientMessage, ClosedMessage, CloseMessage, DiscardedMessage, DisconnectMessage, DisconnectReason, ErrorMessage, MessageDispatcher, OpenedMessage, OpenMessage, PingMessage, PongMessage, ServerMessage } from "./models";
+import { AudioHookWebSocket, ClientMessage, ClosedMessage, CloseMessage, DiscardedMessage, DisconnectMessage, DisconnectReason, ErrorMessage, MessageDispatcher, OpenedMessage, OpenMessage, PausedMessage, PingMessage, PongMessage, ResumedMessage, ServerMessage } from "./models";
 import { PcmuToWav } from "./pcmu-to-wav";
 import path from "path";
 import * as fsPromises from "fs/promises";
 import * as fs from "fs";
-import { listAudioFiles } from "./api";
+import { deleteFile, listAudioFiles } from "./api";
 import { environment } from "./environment";
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
@@ -19,6 +19,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use("/media", express.static(path.join(__dirname, environment.mediaPath)));
 app.get("/audio", listAudioFiles);
+app.delete("/audio/:id", deleteFile);
 
 // create media folder
 if (!fs.existsSync(path.join(__dirname, environment.mediaPath))) fs.mkdirSync(path.join(__dirname, environment.mediaPath));
@@ -29,7 +30,9 @@ let clientMessageDispatcher: MessageDispatcher<ClientMessage, AudioHookWebSocket
   discarded: receiveDiscardedMessage,
   error: receiveErrorMessage,
   open: receiveOpenMessage,
-  ping: receivePingMessage
+  paused: receivePausedMessage,
+  ping: receivePingMessage,
+  resumed: receiveResumedMessage
 };
 
 let expressServer = app.listen(PORT, () => {
@@ -49,7 +52,21 @@ let expressServer = app.listen(PORT, () => {
     // save headers sent by AudioHook client
     let sessionId = req.headers["audiohook-session-id"];
     let organizationId = req.headers["audiohook-organization-id"];
+    let correlationId = req.headers["audiohook-correlation-id"];
     let key = req.headers["x-api-key"];
+    let signature = req.headers["signature"];
+    let signatureInput = req.headers["signature-input"];
+    let xForwardedFor = req.headers["x-forwarded-for"];
+
+    logger.debug({
+      sessionId: sessionId,
+      organizationId: organizationId,
+      correlationId: correlationId,
+      key: key,
+      signature: signature,
+      signatureInput: signatureInput,
+      xForwardedFor: xForwardedFor,
+    }, "Request headers.");
 
     // verify headers
     if (!sessionId) {
@@ -72,7 +89,6 @@ let expressServer = app.listen(PORT, () => {
     }
 
     // all verified ok
-    logger.info(`New websocket session.`);
     logger.debug({ sessionId: ws.sessionId }, "New websocket session.");
   });
 
@@ -130,6 +146,7 @@ function onWebSocketMessage(this: WebSocket, buf: Buffer, isBinary: boolean): vo
           message: clientMessage
         },
           "Incorrect expected client sequence number.");
+
         sendDisconnect("error", "Incorrect client sequence number.", ws);
         return;
       }
@@ -161,7 +178,9 @@ function onWebSocketClosed(this: WebSocket, code: number, reason: Buffer): void 
   if (ws.samples.length > 0 && ws.conversationId) {
     let wavFile = path.join(__dirname, environment.mediaPath, `${ws.conversationId}.wav`);
     logger.info(`Writing PCMU to ${wavFile}`);
-    PcmuToWav(ws.samples, 8, 2, 8000, wavFile);
+
+    let channels = ws.media.channels.includes("external") && ws.media.channels.includes("internal") ? 2 : 1;
+    PcmuToWav(ws.samples, 8, channels, 8000, wavFile);
   }
 }
 
@@ -211,9 +230,7 @@ function receiveOpenMessage(message: OpenMessage, ws: AudioHookWebSocket): void 
 
   // is AudioHook client offering what we support?
   let mediaParameter = message.parameters.media.find((a) => {
-    return a.channels.includes("external") &&
-      a.channels.includes("internal") &&
-      a.format == "PCMU" &&
+    return a.format == "PCMU" &&
       a.rate == 8000 &&
       a.type == "audio"
   });
@@ -230,12 +247,30 @@ function receiveOpenMessage(message: OpenMessage, ws: AudioHookWebSocket): void 
 }
 
 /**
+ * Handle "paused" message from AudioHook client.
+ * @param message "paused" message from client.
+ * @param ws Websocket session.
+ */
+function receivePausedMessage(message: PausedMessage, ws: AudioHookWebSocket): void {
+  logger.info(`Streaming paused.`);
+}
+
+/**
  * Handle "ping" message from AudioHook client.
  * @param message "ping" message from client.
  * @param ws Websocket session.
  */
 function receivePingMessage(message: PingMessage, ws: AudioHookWebSocket): void {
   sendPong(ws);
+}
+
+/**
+ * Handle "resumed" message from AudioHook client.
+ * @param message "ping" message from client.
+ * @param ws Websocket session.
+ */
+function receiveResumedMessage(message: ResumedMessage, ws: AudioHookWebSocket): void {
+  logger.info(`Streaming resumed.`);
 }
 
 /**
@@ -296,12 +331,7 @@ function sendOpened(ws: AudioHookWebSocket): void {
     id: ws.sessionId,
     type: "opened",
     parameters: {
-      media: [{
-        type: "audio",
-        format: "PCMU",
-        channels: ["external", "internal"],
-        rate: 8000
-      }]
+      media: [ws.media]
     },
     seq: ws.seq + 1,
     clientseq: ws.clientSeq
